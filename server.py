@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from datetime import date
-from sqlalchemy import ForeignKey, Integer, Text, String, Column, create_engine, DateTime, Date, select, func, update, delete
+from sqlalchemy import desc, ForeignKey, null, and_, Integer, Text, String, Column, create_engine, DateTime, Date, select, func, update, delete
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import relationship, sessionmaker, Session, DeclarativeBase, registry, Mapped, mapped_column
 
@@ -136,7 +136,6 @@ class Competitions(Base):
     video_instruction: Mapped[str] = mapped_column(Text, nullable = False)
 
 class CompetitionBase(BaseModel):
-    competition_id: int
     title: str
     password: str
     video_instruction: str
@@ -239,7 +238,6 @@ class Results(Base):
     )
 
 class ResultsBase(BaseModel):
-        result_id: int
         competition_id: int
         telegram_id: int
         video: str
@@ -255,6 +253,130 @@ async def add_result(result:ResultsBase, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(db_result)
         return "Результат добавлен :3"
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Изменение результата в БД
+@app.post('/editResult')
+async def edit_result(competition_id: int, telegram_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    try:
+        query = update(Results).where(and_(Results.competition_id == competition_id,Results.telegram_id == telegram_id)).values(video = data["video"],count = data["count"],status = data["status"])
+        await db.execute(query)
+        await db.commit()
+        return "Результат изменен"
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Обнуление количества повторений
+@app.post('/setNullResult')
+async def set_null_result(result_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = update(Results).where(Results.result_id == result_id).values(count = None)
+        await db.execute(query)
+        await db.commit()
+        return "Результат обнулен"
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Обнуление количества повторений
+@app.post('/editCountResult')
+async def edit_count_result(result_id: int, new_count: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = update(Results).where(Results.result_id == result_id).values(count = new_count, status = "✅")
+        await db.execute(query)
+        await db.commit()
+        return "Результат повторений обновлен"
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Удаление результата пользователя
+@app.delete('/deleteResult')
+async def delete_result(result_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = delete(Results).where(Results.result_id == result_id)
+        await db.execute(query)
+        await db.commit()
+        return "Результат удален"
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Выборка всех результатов определённого пользователя
+@app.get('/getUserAll')
+async def get_user_all(telegram_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results).where(Results.telegram_id == telegram_id)
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Выборка результата пользователя по определённому соревнованию
+@app.get('/getUserResult')
+async def get_user_result(telegram_id: int, competition_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results).where(and_(Results.telegram_id == telegram_id, Results.competition_id == competition_id))
+        result = await db.execute(query)
+        return result.scalar()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Выборка всех результатов из БД
+@app.get('/getAllResult')
+async def get_all_result(db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results)
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Выборка всех результатов определённого соревнования
+@app.get('/getCompetitionResult')
+async def get_competition_result(competition_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results).where(Results.competition_id == competition_id)
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Выборка id всех участников определённого соревнования
+@app.get('/getCompetitionMembers')
+async def get_competition_Members(competition_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results.telegram_id).where(Results.competition_id == competition_id)
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+
+# Выборка статуса
+@app.get('/chekStatus')
+async def check_status(competition_id: int, telegram_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results.status).where(and_(Results.competition_id == competition_id,Results.telegram_id == telegram_id))
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+
+# Фильтрация результатов соревнования по count от большего к меньшему
+@app.get('/raitingUsers')
+async def rating_users(competition_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results).where(Results.competition_id == competition_id).filter(Results.count != null()).order_by(desc(Results.count))
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
+    
+# Фильтрация результатов соревнования по count от большего к меньшему
+@app.get('/totalRaitingUsers')
+async def total_rating_users(db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(Results.telegram_id, func.sum(Results.count).label('total_count')).filter(Results.status.isnot(None), Results.count > 0).group_by(Results.telegram_id).order_by(func.sum(Results.count).desc())
+        result = await db.execute(query)
+        return result.scalars().all()
     except Exception as e:
         return {"error": f"Произошла ошибка при добавлении: {str(e)}"}
     
